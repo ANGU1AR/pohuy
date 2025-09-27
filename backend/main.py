@@ -1,5 +1,10 @@
 import os
-from fastapi import FastAPI, Depends
+# Добавь проверку конфигурации ПЕРВОЙ строкой
+if not os.path.exists('yandex_config.json') or not os.path.exists('.env'):
+    print("⚠️  Конфигурация не найдена. Запустите setup.py сначала!")
+    exit(1)
+
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -11,6 +16,9 @@ from routes.auth import router as auth_router
 from routes.admin import router as admin_router
 from jose import JWTError, jwt
 from celery import Celery
+import models  # Добавь импорт models
+from dotenv import load_dotenv
+load_dotenv()  # Загружает переменные из .env
 
 Base.metadata.create_all(bind=engine)
 
@@ -37,17 +45,18 @@ app.include_router(admin_router, prefix="/admin", tags=["admin"])
 SECRET_KEY = os.getenv("SECRET_KEY")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
-celery = Celery(name, broker=os.getenv("CELERY_BROKER_URL"), backend=os.getenv("CELERY_RESULT_BACKEND"))
+# Исправь эту строку - убрал переменную name
+celery = Celery(__name__, broker=os.getenv("CELERY_BROKER_URL"), backend=os.getenv("CELERY_RESULT_BACKEND"))
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         username = payload.get("sub")
     except JWTError:
-        raise HTTPException(401, "Invalid token")
+        raise HTTPException(status_code=401, detail="Invalid token")
     user = db.query(models.User).filter(models.User.username == username).first()
     if not user:
-        raise HTTPException(401, "User not found")
+        raise HTTPException(status_code=401, detail="User not found")
     return user
 
 @app.get("/")
